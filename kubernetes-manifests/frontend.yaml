@@ -1,0 +1,127 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  labels:
+    app: frontend
+spec:
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+      annotations:
+        sidecar.istio.io/rewriteAppHTTPProbers: "true"
+    spec:
+      serviceAccountName: frontend
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: server
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+          image: 021104859097.dkr.ecr.us-east-1.amazonaws.com/online-boutique/frontend:df0ab7d70e9329f9de97be58d44c27052cd10dee
+          ports:
+          - containerPort: 8080
+          readinessProbe:
+            initialDelaySeconds: 10
+            httpGet:
+              path: "/_healthz"
+              port: 8080
+              httpHeaders:
+              - name: "Cookie"
+                value: "shop_session-id=x-readiness-probe"
+          livenessProbe:
+            initialDelaySeconds: 10
+            httpGet:
+              path: "/_healthz"
+              port: 8080
+              httpHeaders:
+              - name: "Cookie"
+                value: "shop_session-id=x-liveness-probe"
+          env:
+          - name: PORT
+            value: "8080"
+          - name: PRODUCT_CATALOG_SERVICE_ADDR
+            value: "productcatalogservice:3550"
+          - name: SHOPPING_ASSISTANT_SERVICE_ADDR
+            value: "shoppingassistantservice:80"
+          - name: CURRENCY_SERVICE_ADDR
+            value: "currencyservice:7000"
+          - name: CART_SERVICE_ADDR
+            value: "cartservice:7070"
+          - name: RECOMMENDATION_SERVICE_ADDR
+            value: "recommendationservice:8080"
+          - name: SHIPPING_SERVICE_ADDR
+            value: "shippingservice:50051"
+          - name: CHECKOUT_SERVICE_ADDR
+            value: "checkoutservice:5050"
+          - name: AD_SERVICE_ADDR
+            value: "adservice:9555"
+          - name: ENV_PLATFORM
+            value: "aws"
+          - name: ENABLE_PROFILER
+            value: "0"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  labels:
+    app: frontend
+spec:
+  type: ClusterIP
+  selector:
+    app: frontend
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: frontend
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: frontend
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/group.name: "vicops-shared-alb"
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:021104859097:certificate/43512578-fa24-495f-b805-77cb2f3b5fae
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    external-dns.alpha.kubernetes.io/hostname: shop.vicops.xyz
+spec:
+  ingressClassName: alb
+  rules:
+  - host: shop.vicops.xyz
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend
+            port:
+              number: 80
