@@ -1,0 +1,22 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+*.tfplan
+tfplan
+
+# Kubernetes / AWS credentials
+kubeconfig*
+*.kubeconfig
+.kube/
+.aws/
+
+# Local env and keys
+.env
+.env.*
+*.pem
+*.key
