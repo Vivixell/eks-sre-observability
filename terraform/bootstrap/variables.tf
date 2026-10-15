@@ -19,8 +19,9 @@ variable "services" {
   ]
 }
 
-variable "github_repo" {
-  description = "GitHub repository allowed to assume the deploy role (owner/name)"
+
+variable "github_sub_prefix" {
+  description = "Subject claim prefix shown in repo Settings > Actions > OIDC"
   type        = string
-  default     = "Vivixell/eks-sre-observability"
+  default     = "repo:Vivixell@105794570/eks-sre-observability@1414659457"
 }
