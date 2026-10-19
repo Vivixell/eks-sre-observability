@@ -1,0 +1,76 @@
+name: terraform-pr
+
+on:
+  pull_request:
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform-pr.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.15"
+          terraform_wrapper: false
+      - run: terraform fmt -check -recursive -diff
+        working-directory: terraform
+
+  validate:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: [terraform/bootstrap] 
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.15"
+          terraform_wrapper: false
+      - run: terraform init -backend=false -input=false
+        working-directory: ${{ matrix.dir }}
+      - run: terraform validate -no-color
+        working-directory: ${{ matrix.dir }}
+
+  plan:
+    needs: [fmt, validate]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write 
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: [terraform/bootstrap] 
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.15"
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: us-east-1
+      - run: terraform init -input=false
+        working-directory: ${{ matrix.dir }}
+      - run: terraform plan -input=false -no-color -out=tfplan
+        working-directory: ${{ matrix.dir }}
+      - name: Plan to job summary
+        if: always()
+        working-directory: ${{ matrix.dir }}
+        run: |
+          echo '### Plan: ${{ matrix.dir }}' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          terraform show -no-color tfplan >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
