@@ -30,7 +30,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        dir: [terraform/bootstrap, terraform/vpc] 
+        dir: [terraform/bootstrap, terraform/vpc, terraform/eks] 
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
@@ -51,7 +51,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        dir: [terraform/bootstrap, terraform/vpc] 
+        dir: [terraform/bootstrap, terraform/vpc, terraform/eks] 
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
