@@ -77,7 +77,7 @@ spec:
               - ALL
           privileged: false
           readOnlyRootFilesystem: true
-        image: loadgenerator
+        image: 657092010570.dkr.ecr.us-east-1.amazonaws.com/eks-sre-observability/loadgenerator:e4bfecc7548114f3bffb74babe5c645aa140cfe5
         env:
         - name: FRONTEND_ADDR
           value: "frontend:80"
