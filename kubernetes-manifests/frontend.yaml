@@ -100,28 +100,28 @@ kind: ServiceAccount
 metadata:
   name: frontend
 ---
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: frontend
-  annotations:
-    alb.ingress.kubernetes.io/scheme: internet-facing
-    alb.ingress.kubernetes.io/target-type: ip
-    alb.ingress.kubernetes.io/group.name: "vicops-shared-alb"
-    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:021104859097:certificate/43512578-fa24-495f-b805-77cb2f3b5fae
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
-    alb.ingress.kubernetes.io/ssl-redirect: "443"
-    external-dns.alpha.kubernetes.io/hostname: shop.vicops.xyz
-spec:
-  ingressClassName: alb
-  rules:
-  - host: shop.vicops.xyz
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: frontend
-            port:
-              number: 80
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   name: frontend
+#   annotations:
+#     alb.ingress.kubernetes.io/scheme: internet-facing
+#     alb.ingress.kubernetes.io/target-type: ip
+#     alb.ingress.kubernetes.io/group.name: "vicops-shared-alb"
+#     alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:021104859097:certificate/43512578-fa24-495f-b805-77cb2f3b5fae
+#     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+#     alb.ingress.kubernetes.io/ssl-redirect: "443"
+#     external-dns.alpha.kubernetes.io/hostname: shop.vicops.xyz
+# spec:
+#   ingressClassName: alb
+#   rules:
+#   - host: shop.vicops.xyz
+#     http:
+#       paths:
+#       - path: /
+#         pathType: Prefix
+#         backend:
+#           service:
+#             name: frontend
+#             port:
+#               number: 80
