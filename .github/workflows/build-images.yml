@@ -1,0 +1,115 @@
+name: build-images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+  workflow_dispatch: # one-time "build every service"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-images
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  REPO_PREFIX: eks-sre-observability
+  REGISTRY: 657092010570.dkr.ecr.us-east-1.amazonaws.com
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.pick.outputs.services }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        if: github.event_name == 'push'
+        with:
+          filters: |
+            adservice: src/adservice/**
+            cartservice: src/cartservice/**
+            checkoutservice: src/checkoutservice/**
+            currencyservice: src/currencyservice/**
+            emailservice: src/emailservice/**
+            frontend: src/frontend/**
+            loadgenerator: src/loadgenerator/**
+            paymentservice: src/paymentservice/**
+            productcatalogservice: src/productcatalogservice/**
+            recommendationservice: src/recommendationservice/**
+            shippingservice: src/shippingservice/**
+
+      - id: pick
+        env:
+          CHANGED: ${{ steps.filter.outputs.changes }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo 'services=["adservice","cartservice","checkoutservice","currencyservice","emailservice","frontend","loadgenerator","paymentservice","productcatalogservice","recommendationservice","shippingservice"]' >> "$GITHUB_OUTPUT"
+          else
+            echo "services=${CHANGED}" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: changes
+    if: needs.changes.outputs.services != '[]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.changes.outputs.services) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_APPLY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          # cartservice keeps its Dockerfile one level down
+          context: ${{ matrix.service == 'cartservice' && 'src/cartservice/src' || format('src/{0}', matrix.service) }}
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          tags: ${{ steps.ecr.outputs.registry }}/${{ env.REPO_PREFIX }}/${{ matrix.service }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  update-manifests:
+    needs: [changes, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Point manifests at the new images
+        env:
+          SERVICES: ${{ needs.changes.outputs.services }}
+        run: |
+          for svc in $(jq -r '.[]' <<<"$SERVICES"); do
+            sed -i -E "s#^([[:space:]]*image:[[:space:]]*)([^[:space:]]*/)?${svc}(:[^[:space:]]*)?[[:space:]]*\$#\1${REGISTRY}/${REPO_PREFIX}/${svc}:${GITHUB_SHA}#" "kubernetes-manifests/${svc}.yaml"
+          done
+
+      - uses: peter-evans/create-pull-request@v7
+        with:
+          branch: chore/image-bump-${{ github.sha }}
+          delete-branch: true
+          commit-message: "chore: bump images to ${{ github.sha }}"
+          title: "chore: bump images (${{ github.sha }})"
+          body: "Automated image bump after build-images. Merge to update the manifests."
