@@ -1,0 +1,122 @@
+name: terraform-layer
+
+on:
+  workflow_call:
+    inputs:
+      dir:
+        description: "Layer directory, for example terraform/vpc"
+        type: string
+        required: true
+      mode:
+        description: "apply or destroy"
+        type: string
+        required: true
+      execute:
+        description: "false = plan only, nothing is changed"
+        type: boolean
+        default: true
+      skip_if_empty:
+        description: "true = do nothing if the layer's state has no resources"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: us-east-1
+  STATE_BUCKET: ovr-eks-sre-tfstate-657092010570-us-east-1
+
+jobs:
+  run:
+    name: ${{ inputs.mode }} ${{ inputs.dir }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Refuse bootstrap and unknown modes
+        env:
+          DIR: ${{ inputs.dir }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          if [[ "$DIR" == terraform/bootstrap* ]]; then
+            echo "Refusing to touch bootstrap from a workflow."; exit 1
+          fi
+          if [[ "$MODE" != "apply" && "$MODE" != "destroy" ]]; then
+            echo "Unknown mode: $MODE"; exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.15"
+          terraform_wrapper: false
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_APPLY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Identity, region and state key
+        id: guard
+        env:
+          DIR: ${{ inputs.dir }}
+          SKIP_IF_EMPTY: ${{ inputs.skip_if_empty }}
+        run: |
+          set -euo pipefail
+          KEY="${DIR#terraform/}/terraform.tfstate"
+          aws sts get-caller-identity
+          echo "region=${AWS_REGION} bucket=${STATE_BUCKET} key=${KEY}"
+
+          if [ "$SKIP_IF_EMPTY" = "true" ]; then
+            if ! state=$(aws s3 cp "s3://${STATE_BUCKET}/${KEY}" - 2>"$RUNNER_TEMP/err.txt"); then
+              if grep -qE "404|NoSuchKey|Not Found" "$RUNNER_TEMP/err.txt"; then
+                state='{"resources":[]}'
+              else
+                cat "$RUNNER_TEMP/err.txt"; exit 1
+              fi
+            fi
+            count=$(jq '.resources | length' <<<"$state")
+            echo "resources in state: ${count}"
+            if [ "$count" -eq 0 ]; then
+              echo "State is empty: skipping (a push never creates a layer from nothing)."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Init
+        if: steps.guard.outputs.skip != 'true'
+        working-directory: ${{ inputs.dir }}
+        run: terraform init -input=false
+
+      - name: Plan
+        if: steps.guard.outputs.skip != 'true'
+        working-directory: ${{ inputs.dir }}
+        env:
+          MODE: ${{ inputs.mode }}
+        run: |
+          flag=""
+          if [ "$MODE" = "destroy" ]; then flag="-destroy"; fi
+          terraform plan -input=false -no-color -lock-timeout=5m $flag -out=tfplan
+
+      - name: Plan to job summary
+        if: always() && steps.guard.outputs.skip != 'true'
+        working-directory: ${{ inputs.dir }}
+        env:
+          MODE: ${{ inputs.mode }}
+          DIR: ${{ inputs.dir }}
+          EXECUTE: ${{ inputs.execute }}
+        run: |
+          {
+            echo "### ${MODE}: ${DIR}"
+            if [ "$EXECUTE" != "true" ]; then echo "_Preview only: nothing was changed._"; fi
+            echo '```'
+            terraform show -no-color tfplan 2>&1 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Apply the saved plan
+        if: steps.guard.outputs.skip != 'true' && inputs.execute
+        working-directory: ${{ inputs.dir }}
+        run: terraform apply -input=false -no-color -lock-timeout=5m tfplan

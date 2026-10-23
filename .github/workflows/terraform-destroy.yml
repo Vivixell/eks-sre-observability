@@ -1,0 +1,39 @@
+name: terraform-destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "no = preview the destroy plan only; yes = destroy eks, then vpc"
+        type: choice
+        options: ["no", "yes"]
+        default: "no"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-ephemeral
+  cancel-in-progress: false
+
+jobs:
+  eks:
+    uses: ./.github/workflows/terraform-layer.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      dir: terraform/eks
+      mode: destroy
+      execute: ${{ inputs.confirm == 'yes' }}
+
+  vpc:
+    needs: eks
+    uses: ./.github/workflows/terraform-layer.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      dir: terraform/vpc
+      mode: destroy
+      execute: ${{ inputs.confirm == 'yes' }}
