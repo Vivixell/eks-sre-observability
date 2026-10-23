@@ -1,0 +1,38 @@
+name: terraform-apply
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "terraform/vpc/**"
+      - "terraform/eks/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-ephemeral
+  cancel-in-progress: false
+
+jobs:
+  vpc:
+    uses: ./.github/workflows/terraform-layer.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      dir: terraform/vpc
+      mode: apply
+      skip_if_empty: ${{ github.event_name == 'push' }}
+
+  eks:
+    needs: vpc
+    uses: ./.github/workflows/terraform-layer.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      dir: terraform/eks
+      mode: apply
+      skip_if_empty: ${{ github.event_name == 'push' }}
